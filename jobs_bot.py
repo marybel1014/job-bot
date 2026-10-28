@@ -7,18 +7,26 @@ import feedparser
 import requests
 
 # ===================== НАЛАШТУВАННЯ =====================
-# Вакансія проходить, якщо в назві/описі є ХОЧА Б ОДНЕ слово з INCLUDE
-INCLUDE = ["python", "backend", "data analyst"]
-# ...і немає жодного слова з EXCLUDE
-EXCLUDE = ["senior director", "unpaid", "intern"]
+# Вакансія проходить, якщо в НАЗВІ є хоча б одне слово з TITLE_INCLUDE
+TITLE_INCLUDE = ["ui/ux", "ux/ui", "ui ux", "ux ui", "product designer",
+                 "ux designer", "ui designer", "ux/ui designer", "ui/ux designer",
+                 "web designer", "interaction designer", "digital designer"]
+# ...і в назві немає жодного слова з TITLE_EXCLUDE (відсікаємо надто високі рівні та не ті ролі)
+TITLE_EXCLUDE = ["senior", "sr.", "lead", "head of", "principal", "director",
+                 "staff", "manager", "intern", "trainee", "researcher",
+                 "graphic", "interior", "fashion", "3d", "motion"]
 
-# Твої RSS-стрічки (DOU, Djinni, Work.ua тощо, якщо є RSS за потрібним фільтром)
+# Регіон: якщо в вакансії вказано локацію, вона має містити одне з цих слів.
+# Якщо локація не вказана (RSS), вакансія проходить.
+LOCATION_INCLUDE = ["worldwide", "anywhere", "europe", "emea", "ukraine", "global"]
+
+# Твої RSS-стрічки (DOU, Djinni тощо, якщо знайдеш RSS за потрібним фільтром)
 RSS_FEEDS = [
-    # "https://jobs.dou.ua/vacancies/feeds/?category=Python",
+    # "https://...",
 ]
 
-# Пошуковий запит для Remotive (одне слово/фраза)
-REMOTIVE_QUERY = "python"
+REMOTIVE_QUERY = "designer"
+JOBICY_TAG = "designer"   # від 3 до 50 символів
 
 MAX_PER_RUN = 15  # щоб на першому запуску не прийшла сотня повідомлень
 # ========================================================
@@ -75,6 +83,25 @@ def fetch_arbeitnow():
         return []
 
 
+def fetch_jobicy():
+    try:
+        r = requests.get("https://jobicy.com/api/v2/remote-jobs",
+                         params={"count": 50, "tag": JOBICY_TAG}, timeout=30)
+        r.raise_for_status()
+        geo = lambda j: j.get("jobGeo", "")
+        return [{
+            "id": f"jobicy-{j['id']}",
+            "title": j.get("jobTitle", ""),
+            "company": j.get("companyName", ""),
+            "location": geo(j) if isinstance(geo(j), str) else ", ".join(geo(j)),
+            "url": j.get("url", ""),
+            "source": "Jobicy",
+        } for j in r.json().get("jobs", [])]
+    except Exception as e:
+        print("Jobicy error:", e)
+        return []
+
+
 def fetch_rss():
     jobs = []
     for url in RSS_FEEDS:
@@ -96,8 +123,15 @@ def fetch_rss():
 
 
 def matches(job):
-    t = job["text"].lower()
-    return any(k.lower() in t for k in INCLUDE) and not any(k.lower() in t for k in EXCLUDE)
+    title = job["title"].lower()
+    if not any(k in title for k in TITLE_INCLUDE):
+        return False
+    if any(k in title for k in TITLE_EXCLUDE):
+        return False
+    loc = job["location"].lower()
+    if loc and not any(k in loc for k in LOCATION_INCLUDE):
+        return False
+    return True
 
 
 def send(job):
@@ -119,7 +153,7 @@ def send(job):
 
 def main():
     seen = load_seen()
-    jobs = fetch_remotive() + fetch_arbeitnow() + fetch_rss()
+    jobs = fetch_remotive() + fetch_arbeitnow() + fetch_jobicy() + fetch_rss()
     new = [j for j in jobs if j["id"] not in seen and matches(j)]
     print(f"Знайдено {len(jobs)}, нових підходящих {len(new)}")
 
