@@ -1,0 +1,34 @@
+name: Job alerts
+
+on:
+  schedule:
+    - cron: "0 7 * * *"   # щодня о 07:00 UTC (10:00 за Києвом влітку)
+  workflow_dispatch:       # ручний запуск кнопкою
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - name: Run bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python jobs_bot.py
+
+      - name: Save seen jobs
+        run: |
+          git config user.name "job-bot"
+          git config user.email "job-bot@users.noreply.github.com"
+          git add seen.json
+          git diff --staged --quiet || (git commit -m "update seen jobs" && git push)
